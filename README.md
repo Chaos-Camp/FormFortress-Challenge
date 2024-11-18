@@ -227,21 +227,6 @@ Submissions will be evaluated based on:
 
 ---
 
-## ❓ **Support**
-
-If you encounter any issues or have questions regarding the challenge, feel free to reach out:
-
-- **Email**: [support@chaos-camp.com](mailto:support@chaos-camp.com)
-- **GitHub Issues**: [Open an Issue](https://github.com/Chaos-Camp/FormFortress-Challenge/issues)
-
----
-
-## 📜 **License**
-
-Distributed under the [MIT License](LICENSE).
-
----
-
 # 🌟 **Good Luck!**
 
 Embrace the **FormFortress Challenge**, showcase your automation prowess, and ensure the security verification and password setup form is rock-solid! 🚀
