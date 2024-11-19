@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Security Verification & Password Setup</title>
+  <style>
+    :root {
+      --primary-color: #3b82f6;
+      --success-color: #22c55e;
+      --error-color: #dc2626;
+      --background-color: #ffffff;
+      --shadow-color: rgba(0, 0, 0, 0.1);
+      --border-color: #ddd;
+      --disabled-color: #9ca3af;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f9fafb;
+      margin: 0;
+      padding: 0;
+    }
+
+    .card {
+      max-width: 400px;
+      margin: 2rem auto;
+      padding: 1.5rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 2px 4px var(--shadow-color);
+      background: var(--background-color);
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .input-group {
+      position: relative;
+      margin-bottom: 1rem;
+    }
+
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      padding: 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: 0.25rem;
+      font-size: 1rem;
+      box-sizing: border-box;
+    }
+
+    .toggle-password {
+      position: absolute;
+      right: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      cursor: pointer;
+      background: none;
+      border: none;
+      font-size: 1rem;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      width: 2rem;
+    }
+
+    .strength-meter {
+      height: 4px;
+      background: #eee;
+      margin: 1rem 0;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .strength-bar {
+      height: 100%;
+      width: 0;
+      background: #ef4444;
+      transition: width 0.3s, background 0.3s;
+    }
+
+    .criteria {
+      margin: 1rem 0;
+    }
+
+    .criterion {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0.25rem 0;
+      color: var(--error-color);
+    }
+
+    .criterion.valid {
+      color: var(--success-color);
+    }
+
+    .captcha {
+      background: #f3f4f6;
+      padding: 1rem;
+      text-align: center;
+      font-family: monospace;
+      font-size: 1.25rem;
+      letter-spacing: 0.25em;
+      user-select: none;
+      margin-bottom: 1rem;
+      border-radius: 0.25rem;
+    }
+
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      background: var(--primary-color);
+      color: white;
+      border: none;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    button:disabled {
+      background: var(--disabled-color);
+      cursor: not-allowed;
+    }
+
+    .error {
+      background: #fee2e2;
+      border: 1px solid var(--error-color);
+      color: var(--error-color);
+      padding: 0.75rem;
+      border-radius: 0.25rem;
+      margin-top: 1rem;
+      display: none;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 1rem;
+      height: 1rem;
+      border: 2px solid #fff;
+      border-right-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+      margin-right: 0.5rem;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="card" aria-live="polite">
+    <!-- Step 1: CAPTCHA Verification -->
+    <div id="step1">
+      <h2>Security Verification</h2>
+      <div class="captcha" id="captcha" aria-label="CAPTCHA"></div>
+      <div class="input-group">
+        <input type="text" id="captchaInput" placeholder="Enter CAPTCHA" aria-label="CAPTCHA Input">
+        <button type="button" id="refreshCaptchaBtn" aria-label="Refresh CAPTCHA">↻</button>
+      </div>
+      <button type="button" id="verifyCaptchaBtn">Verify CAPTCHA</button>
+    </div>
+
+    <!-- Step 2: Password Setup -->
+    <div id="step2" class="hidden">
+      <h2>Password Setup</h2>
+      <div class="input-group">
+        <input type="password" id="password" placeholder="Enter password" aria-label="Password">
+        <button type="button" class="toggle-password" id="togglePasswordBtn" aria-label="Toggle Password Visibility">👁️</button>
+      </div>
+      <div class="input-group">
+        <input type="password" id="confirmPassword" placeholder="Confirm password" aria-label="Confirm Password">
+      </div>
+      
+      <div class="strength-meter" aria-label="Password Strength">
+        <div class="strength-bar" id="strengthBar"></div>
+      </div>
+
+      <div class="criteria" id="criteria" aria-live="polite"></div>
+      
+      <button type="button" id="submitBtn" disabled>Create Password</button>
+      <div id="error" class="error" role="alert"></div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const MAX_ATTEMPTS = 3;
+      const LOCKOUT_DURATION = 30; // in seconds
+
+      let attempts = 0;
+      let locked = false;
+      let timer = LOCKOUT_DURATION;
+      let generatedCaptcha = '';
+      
+      // Flag to prevent multiple simultaneous verifications
+      let isVerifying = false;
+
+      // DOM Elements
+      const captchaEl = document.getElementById('captcha');
+      const refreshCaptchaBtn = document.getElementById('refreshCaptchaBtn');
+      const verifyCaptchaBtn = document.getElementById('verifyCaptchaBtn');
+      const step1 = document.getElementById('step1');
+      const step2 = document.getElementById('step2');
+      const captchaInput = document.getElementById('captchaInput');
+      const passwordInput = document.getElementById('password');
+      const confirmPasswordInput = document.getElementById('confirmPassword');
+      const togglePasswordBtn = document.getElementById('togglePasswordBtn');
+      const strengthBar = document.getElementById('strengthBar');
+      const criteriaEl = document.getElementById('criteria');
+      const submitBtn = document.getElementById('submitBtn');
+      const errorEl = document.getElementById('error');
+
+      // Generate CAPTCHA
+      const generateCaptcha = () => {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+        return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+      };
+
+      const refreshCaptcha = () => {
+        generatedCaptcha = generateCaptcha();
+        captchaEl.textContent = generatedCaptcha;
+        captchaInput.value = '';
+        verifyCaptchaBtn.disabled = false;
+        verifyCaptchaBtn.innerHTML = 'Verify CAPTCHA';
+      };
+
+      // Password Strength
+      const calculateStrength = (password) => {
+        let score = 0;
+        const criteria = [
+          /.{8,}/,
+          /.{12,}/,
+          /[A-Z]/,
+          /[a-z]/,
+          /\d/,
+          /[^A-Za-z0-9]/
+        ];
+        criteria.forEach((regex) => {
+          if (regex.test(password)) score++;
+        });
+        return score;
+      };
+
+      const updateStrengthMeter = (password) => {
+        const strength = calculateStrength(password);
+        strengthBar.style.width = `${(strength / 6) * 100}%`;
+        const colors = ['#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e', '#15803d'];
+        strengthBar.style.background = colors[strength - 1] || '#ef4444';
+      };
+
+      // Validate Password
+      const validatePassword = () => {
+        const password = passwordInput.value;
+        const confirmPassword = confirmPasswordInput.value;
+
+        const criteria = [
+          { label: 'Uppercase (A-Z)', valid: /[A-Z]/.test(password) },
+          { label: 'Lowercase (a-z)', valid: /[a-z]/.test(password) },
+          { label: 'Number (0-9)', valid: /\d/.test(password) },
+          { label: 'Special Character (!@#$%^&*)', valid: /[!@#$%^&*]/.test(password) },
+          { label: 'Minimum 8 Characters', valid: password.length >= 8 },
+          { label: 'Passwords Match', valid: password === confirmPassword && password !== '' }
+        ];
+
+        // Update criteria display
+        criteriaEl.innerHTML = criteria.map(c => 
+          `<div class="criterion ${c.valid ? 'valid' : ''}">
+            ${c.valid ? '✓' : '✗'} ${c.label}
+          </div>`
+        ).join('');
+
+        const allValid = criteria.every(c => c.valid);
+        submitBtn.disabled = !allValid;
+      };
+
+      // Show Error Message
+      const showError = (message) => {
+        errorEl.textContent = message;
+        errorEl.style.display = 'block';
+        setTimeout(() => {
+          errorEl.style.display = 'none';
+        }, 3000);
+      };
+
+      // Toggle Password Visibility
+      const togglePasswordVisibility = () => {
+        const type = passwordInput.type === 'password' ? 'text' : 'password';
+        passwordInput.type = type;
+        confirmPasswordInput.type = type;
+        togglePasswordBtn.textContent = type === 'password' ? '👁️' : '🙈';
+      };
+
+      // Verify CAPTCHA
+      const verifyCaptcha = async () => {
+        // Prevent multiple verifications
+        if (locked || isVerifying) return;
+
+        isVerifying = true;
+
+        const input = captchaInput.value.trim();
+        if (input.toLowerCase() === generatedCaptcha.toLowerCase()) {
+          verifyCaptchaBtn.disabled = true;
+          verifyCaptchaBtn.innerHTML = '<span class="spinner" aria-hidden="true"></span> Verifying...';
+          
+          // Simulate server verification delay
+          try {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          } catch (error) {
+            console.error('Error during CAPTCHA verification:', error);
+            showError('An error occurred. Please try again.');
+            verifyCaptchaBtn.disabled = false;
+            verifyCaptchaBtn.innerHTML = 'Verify CAPTCHA';
+            isVerifying = false;
+            return;
+          }
+
+          step1.classList.add('hidden');
+          step2.classList.remove('hidden');
+          passwordInput.focus();
+          isVerifying = false; // Reset the flag
+        } else {
+          attempts++;
+          showError(`Invalid CAPTCHA. Attempts remaining: ${MAX_ATTEMPTS - attempts}`);
+          if (attempts >= MAX_ATTEMPTS) {
+            lockout();
+          } else {
+            refreshCaptcha();
+          }
+          isVerifying = false; // Reset the flag
+        }
+      };
+
+      // Submit Password
+      const submitPassword = () => {
+        // Placeholder for actual password submission logic
+        alert('Password successfully created!');
+        // Reset the form
+        step2.classList.add('hidden');
+        step1.classList.remove('hidden');
+        refreshCaptcha();
+        passwordInput.value = '';
+        confirmPasswordInput.value = '';
+        strengthBar.style.width = '0';
+        criteriaEl.innerHTML = '';
+        submitBtn.disabled = true;
+      };
+
+      // Lockout Mechanism
+      const lockout = () => {
+        locked = true;
+        // Keep the CAPTCHA section visible
+        // Disable CAPTCHA input and buttons
+        captchaInput.disabled = true;
+        refreshCaptchaBtn.disabled = true;
+        verifyCaptchaBtn.disabled = true;
+        
+        // Display lockout message with countdown
+        showLockoutMessage(LOCKOUT_DURATION);
+      };
+
+      // Display Lockout Message with Countdown
+      const showLockoutMessage = (duration) => {
+        let remaining = duration;
+        
+        // Update the error message to show lockout info
+        errorEl.textContent = `Too many failed attempts. Please try again in ${remaining} seconds.`;
+        errorEl.style.display = 'block';
+        
+        // Start countdown
+        const lockoutTimer = setInterval(() => {
+          remaining--;
+          if (remaining > 0) {
+            errorEl.textContent = `Too many failed attempts. Please try again in ${remaining} seconds.`;
+          } else {
+            clearInterval(lockoutTimer);
+            // Reset lockout state
+            locked = false;
+            attempts = 0;
+            timer = LOCKOUT_DURATION;
+            // Re-enable CAPTCHA input and buttons
+            captchaInput.disabled = false;
+            refreshCaptchaBtn.disabled = false;
+            verifyCaptchaBtn.disabled = false;
+            // Refresh CAPTCHA
+            refreshCaptcha();
+            // Hide lockout message
+            errorEl.textContent = '';
+            errorEl.style.display = 'none';
+          }
+        }, 1000);
+      };
+
+      // Event Listeners
+      refreshCaptchaBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        refreshCaptcha();
+      });
+
+      verifyCaptchaBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        verifyCaptcha();
+      });
+
+      togglePasswordBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        togglePasswordVisibility();
+      });
+
+      passwordInput.addEventListener('input', () => {
+        updateStrengthMeter(passwordInput.value);
+        validatePassword();
+      });
+
+      confirmPasswordInput.addEventListener('input', validatePassword);
+
+      submitBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        submitPassword();
+      });
+
+      // Initialize
+      refreshCaptcha();
+    })();
+  </script>
+</body>
+</html>
